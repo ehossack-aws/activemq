@@ -16,9 +16,12 @@
  */
 package org.apache.activemq.transport.stomp;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
+import org.apache.activemq.broker.jmx.BrokerViewMBean;
+import org.apache.activemq.util.Wait;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import javax.jms.Connection;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -26,13 +29,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import javax.jms.Connection;
-
-import org.apache.activemq.broker.jmx.BrokerViewMBean;
-import org.apache.activemq.util.Wait;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class Stomp12Test extends StompTestSupport {
 
@@ -932,6 +930,24 @@ public class Stomp12Test extends StompTestSupport {
         doTestMixedAckNackWithMessageAckIds(true);
     }
 
+    @Test(timeout = 60000)
+    public void testStompHeaderWithUndefinedEscapeSequence() throws Exception {
+        assertDoStompConnectWithV1_2();
+        String undefinedEscapeSequence = "(\\xe6PM6";
+        String subscribe = "SUBSCRIBE\n" +
+            "id:" + undefinedEscapeSequence + "\n" +
+            "ack:auto\n" +
+            "destination:/queue/" + getQueueName() + "\n" +
+            "receipt:1\n" +
+            "\n" + Stomp.NULL;
+
+        stompConnection.sendFrame(subscribe);
+        StompFrame receipt = stompConnection.receive();
+        LOG.info("Broker sent: " + receipt);
+
+        assertFrameIsErrorWithMessage(receipt, "Undefined escape sequence [\\x] found in header!");
+    }
+
     private void doTestMixedAckNackWithMessageAckIds(boolean individual) throws Exception {
 
         final int MESSAGE_COUNT = 20;
@@ -1044,7 +1060,7 @@ public class Stomp12Test extends StompTestSupport {
 
     private void assertFrameCommandIs(StompFrame frame, String expectedCommand) {
         String frameCommand = frame.getAction();
-        assertTrue("Expected frame command to be: " + expectedCommand + "\nwas: " + frameCommand, frameCommand.startsWith(expectedCommand));
+        assertTrue("Expected frame command to be: " + expectedCommand + "\nwas: " + frameCommand, frameCommand != null && frameCommand.startsWith(expectedCommand));
     }
 
     private void assertFrameIsErrorWithMessage(StompFrame frame, String expectedMessage) {
