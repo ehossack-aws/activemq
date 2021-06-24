@@ -16,6 +16,10 @@
  */
 package org.apache.activemq.transport.stomp;
 
+import org.apache.activemq.util.ByteArrayInputStream;
+import org.apache.activemq.util.ByteArrayOutputStream;
+import org.apache.activemq.util.ByteSequence;
+import org.apache.activemq.wireformat.WireFormat;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -26,11 +30,6 @@ import java.io.PushbackInputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
-
-import org.apache.activemq.util.ByteArrayInputStream;
-import org.apache.activemq.util.ByteArrayOutputStream;
-import org.apache.activemq.util.ByteSequence;
-import org.apache.activemq.wireformat.WireFormat;
 
 /**
  * Implements marshalling and unmarsalling the <a
@@ -189,18 +188,27 @@ public class StompWireFormat implements WireFormat {
     }
 
     private ByteSequence readHeaderLine(DataInput in, int maxLength, String errorMessage) throws IOException {
+        boolean isEscaping = false;
         byte b;
-        ByteArrayOutputStream baos = new ByteArrayOutputStream(maxLength);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(maxLength);
         while ((b = in.readByte()) != '\n') {
-            if (baos.size() > maxLength) {
-                baos.close();
+            if (outputStream.size() > maxLength) {
+                outputStream.close();
                 throw new ProtocolException(errorMessage, true);
             }
-            baos.write(b);
+            if (isEscaping) {
+                if (!isValidEscapedCharacter(b)) {
+                    throw new ProtocolException("Undefined escape sequence [\\"+((char) (b & 0xFF))+"] found in header!", true);
+                }
+                isEscaping = false;
+            } else if (b == Stomp.ESCAPE) {
+                isEscaping = true;
+            }
+            outputStream.write(b);
         }
 
-        baos.close();
-        ByteSequence line = baos.toByteSequence();
+        outputStream.close();
+        ByteSequence line = outputStream.toByteSequence();
 
         if (stompVersion.equals(Stomp.V1_0) || stompVersion.equals(Stomp.V1_2)) {
             int lineLength = line.getLength();
@@ -208,8 +216,22 @@ public class StompWireFormat implements WireFormat {
                 line.setLength(lineLength-1);
             }
         }
-
         return line;
+    }
+
+    private boolean isValidEscapedCharacter(byte b) {
+        if (stompVersion.equals(Stomp.V1_0)) {
+            return true; // no limitations in spec
+        }
+        if (stompVersion.equals(Stomp.V1_1)) {
+            // https://stomp.github.io/stomp-specification-1.1.html#Value_Encoding
+            return b == '\\' || b == 'n' || b == 'c';
+        }
+        if (stompVersion.equals(Stomp.V1_2)) {
+            // https://stomp.github.io/stomp-specification-1.2.html#Value_Encoding
+            return b == '\\' || b == 'r' || b == 'n' || b == 'c';
+        }
+        return false;
     }
 
     protected String parseAction(DataInput in, AtomicLong frameSize) throws IOException {

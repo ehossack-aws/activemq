@@ -686,7 +686,7 @@ public class Stomp11Test extends StompTestSupport {
         frame = stompConnection.receiveFrame();
         assertTrue(frame.startsWith("CONNECTED"));
 
-        frame = "SEND\n" + "correlation-id:c1\\:\\n\\23\n" + "priority:3\n" + "type:t34:5\n" + "JMSXGroupID:abc\n" + "foo:a\\bc\n" + "bar:123\n" + "destination:/queue/" + getQueueName() + "\n\n" + "Hello World"
+        frame = "SEND\n" + "correlation-id:c1\\c\\n\\\\23\n" + "priority:3\n" + "type:t34:5\n" + "JMSXGroupID:abc\n" + "foo:a\\\\bc\n" + "bar:123\n" + "destination:/queue/" + getQueueName() + "\n\n" + "Hello World"
                 + Stomp.NULL;
 
         stompConnection.sendFrame(frame);
@@ -694,7 +694,7 @@ public class Stomp11Test extends StompTestSupport {
         TextMessage message = (TextMessage)consumer.receive(2500);
         assertNotNull(message);
         assertEquals("Hello World", message.getText());
-        assertEquals("JMSCorrelationID", "c1\\:\n\\23", message.getJMSCorrelationID());
+        assertEquals("JMSCorrelationID", "c1:\n\\23", message.getJMSCorrelationID());
         assertEquals("getJMSType", "t34:5", message.getJMSType());
         assertEquals("getJMSPriority", 3, message.getJMSPriority());
         assertEquals("foo", "a\\bc", message.getStringProperty("foo"));
@@ -1129,6 +1129,34 @@ public class Stomp11Test extends StompTestSupport {
         assertEquals(view.getDurableTopicSubscribers().length, 2);
         assertEquals(view.getInactiveDurableTopicSubscribers().length, 0);
     }
+
+    @Test(timeout = 60000)
+    public void testStompHeaderWithUndefinedEscapeSequence() throws Exception {
+        String connectFrame = "STOMP\n" +
+            "login:system\n" +
+            "passcode:manager\n" +
+            "accept-version:1.1\n" +
+            "host:localhost\n" +
+            "\n" + Stomp.NULL;
+        stompConnection.sendFrame(connectFrame);
+        String f = stompConnection.receiveFrame();
+        LOG.debug("Broker sent: " + f);
+        assertTrue(f.startsWith("CONNECTED"));
+        String undefinedEscapeSequence = "(\\xe6PM6";
+        String frame = "SUBSCRIBE\n" +
+            "destination:/queue/" + getQueueName() + "\n" +
+            "id:" + undefinedEscapeSequence + "\n" +
+            "ack:auto\n" +
+            "\n" + Stomp.NULL;
+        stompConnection.sendFrame(frame);
+
+        StompFrame stompFrame = stompConnection.receive();
+        LOG.info("Broker sent: " + stompFrame);
+        assertTrue(stompFrame.getAction().equals("ERROR"));
+        assertTrue(stompFrame.getHeaders().containsKey("message"));
+        assertTrue(stompFrame.getHeaders().get("message").equals("Undefined escape sequence [\\x] found in header!"));
+    }
+
 
     @Test(timeout = 60000)
     public void testTransactionRollbackAllowsSecondAckOutsideTXClientAck() throws Exception {

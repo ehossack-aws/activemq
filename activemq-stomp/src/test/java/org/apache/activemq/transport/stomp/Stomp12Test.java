@@ -16,9 +16,12 @@
  */
 package org.apache.activemq.transport.stomp;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-
+import org.apache.activemq.broker.jmx.BrokerViewMBean;
+import org.apache.activemq.util.Wait;
+import org.junit.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import javax.jms.Connection;
 import java.io.IOException;
 import java.net.Socket;
 import java.util.ArrayList;
@@ -26,13 +29,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import javax.jms.Connection;
-
-import org.apache.activemq.broker.jmx.BrokerViewMBean;
-import org.apache.activemq.util.Wait;
-import org.junit.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 public class Stomp12Test extends StompTestSupport {
 
@@ -71,23 +69,7 @@ public class Stomp12Test extends StompTestSupport {
 
     @Test(timeout = 60000)
     public void testTelnetStyleSends() throws Exception {
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "CONNECT\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2("CONNECT");
 
         String send = "SUBSCRIBE\r\n" +
                       "id:1\r\n" +
@@ -100,30 +82,14 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
     }
 
     @Test(timeout = 60000)
     public void testClientAckWithoutAckId() throws Exception {
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         String subscribe = "SUBSCRIBE\n" +
                            "id:1\n" +
@@ -137,7 +103,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -145,7 +111,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(message);
 
         StompFrame received = stompConnection.receive();
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("1", received.getBody());
 
@@ -156,7 +122,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(frame);
 
         received = stompConnection.receive();
-        assertTrue(received.getAction().equals("ERROR"));
+        assertFrameIsErrorWithMessage(received, "ACK received without a ack id for acknowledge!");
         LOG.info("Broker sent: " + received);
 
         // Now place it in the correct location and check it still works.
@@ -165,7 +131,7 @@ public class Stomp12Test extends StompTestSupport {
 
         receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("2", receiptId);
 
@@ -183,23 +149,7 @@ public class Stomp12Test extends StompTestSupport {
 
     @Test(timeout = 60000)
     public void testClientAck() throws Exception {
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         String subscribe = "SUBSCRIBE\n" +
                            "id:1\n" +
@@ -212,7 +162,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -223,13 +173,13 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame received = stompConnection.receive();
         LOG.info("Stomp Message: {}", received);
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("1", received.getBody());
 
         received = stompConnection.receive();
         LOG.info("Stomp Message: {}", received);
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("2", received.getBody());
 
@@ -251,16 +201,13 @@ public class Stomp12Test extends StompTestSupport {
         // reconnect and send some messages to the offline subscribers and then try to get
         // them after subscribing again.
         stompConnect();
-        stompConnection.sendFrame(connect);
-        frame = stompConnection.receiveFrame();
-        LOG.debug("Broker sent: " + frame);
-        assertTrue(frame.startsWith("CONNECTED"));
+        assertDoStompConnectWithV1_2();
 
         stompConnection.sendFrame(subscribe);
 
         receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -269,7 +216,7 @@ public class Stomp12Test extends StompTestSupport {
 
         received = stompConnection.receive();
         LOG.info("Stomp Message: {}", received);
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("3", received.getBody());
 
@@ -293,23 +240,7 @@ public class Stomp12Test extends StompTestSupport {
     public void testClientAckMultipleMessagesWithSingleAck() throws Exception {
         final int MESSAGE_COUNT = 10;
 
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         // Send some messages
         for (int n = 0; n < MESSAGE_COUNT; n++) {
@@ -328,7 +259,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
         assertEquals(MESSAGE_COUNT, getProxyToQueue(getQueueName()).getQueueSize());
@@ -338,7 +269,7 @@ public class Stomp12Test extends StompTestSupport {
         for (int n = 0; n < MESSAGE_COUNT; n++) {
             StompFrame received = stompConnection.receive();
             LOG.info("Broker sent: " + received);
-            assertTrue(received.getAction().equals("MESSAGE"));
+            assertFrameCommandIs(received, "MESSAGE");
             assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
             assertEquals(String.format("%d", n), received.getBody());
 
@@ -350,7 +281,7 @@ public class Stomp12Test extends StompTestSupport {
 
         receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("2", receiptId);
 
@@ -376,23 +307,7 @@ public class Stomp12Test extends StompTestSupport {
 
     @Test(timeout = 60000)
     public void testClientIndividualAck() throws Exception {
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         String subscribe = "SUBSCRIBE\n" +
                            "id:1\n" +
@@ -405,7 +320,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -415,12 +330,12 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(message);
 
         StompFrame received = stompConnection.receive();
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("1", received.getBody());
 
         received = stompConnection.receive();
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("2", received.getBody());
 
@@ -441,16 +356,13 @@ public class Stomp12Test extends StompTestSupport {
         // reconnect and send some messages to the offline subscribers and then try to get
         // them after subscribing again.
         stompConnect();
-        stompConnection.sendFrame(connect);
-        frame = stompConnection.receiveFrame();
-        LOG.debug("Broker sent: " + frame);
-        assertTrue(frame.startsWith("CONNECTED"));
+        assertDoStompConnectWithV1_2();
 
         stompConnection.sendFrame(subscribe);
 
         receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -458,7 +370,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(message);
 
         received = stompConnection.receive();
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("1", received.getBody());
         String message1AckId = received.getHeaders().get(Stomp.Headers.Message.ACK_ID);
@@ -467,7 +379,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(frame);
 
         received = stompConnection.receive();
-        assertTrue(received.getAction().equals("MESSAGE"));
+        assertFrameCommandIs(received, "MESSAGE");
         assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
         assertEquals("3", received.getBody());
         String message3AckId = received.getHeaders().get(Stomp.Headers.Message.ACK_ID);
@@ -477,7 +389,7 @@ public class Stomp12Test extends StompTestSupport {
 
         receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("2", receiptId);
 
@@ -497,23 +409,7 @@ public class Stomp12Test extends StompTestSupport {
     public void testRepeatedClientIndividualAckInMultipleTransactions() throws Exception {
         final int MESSAGE_COUNT = 50;
 
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         // Send some messages
         for (int n = 0; n < MESSAGE_COUNT; n++) {
@@ -534,7 +430,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -543,7 +439,7 @@ public class Stomp12Test extends StompTestSupport {
         for (int n = 0; n < MESSAGE_COUNT; n++) {
             StompFrame received = stompConnection.receive();
             LOG.info("Broker sent: " + received);
-            assertTrue(received.getAction().equals("MESSAGE"));
+            assertFrameCommandIs(received, "MESSAGE");
             assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
             assertEquals(String.format("%d", n), received.getBody());
 
@@ -620,7 +516,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(unsub);
 
         StompFrame stompFrame = stompConnection.receive();
-        assertTrue(stompFrame.getAction().equals("RECEIPT"));
+        assertFrameCommandIs(stompFrame, "RECEIPT");
 
         subscribe = "SUBSCRIBE\n" + "destination:/queue/" + getQueueName() + "\n" + "id:12345\n\n" + Stomp.NULL;
         stompConnection.sendFrame(subscribe);
@@ -694,7 +590,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.debug("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         assertEquals("1", receipt.getHeaders().get("receipt-id"));
         assertEquals(view.getDurableTopicSubscribers().length, 1);
 
@@ -724,7 +620,7 @@ public class Stomp12Test extends StompTestSupport {
         stompConnection.sendFrame(frame);
         receipt = stompConnection.receive();
         LOG.debug("Broker sent: " + frame);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         assertEquals("3", receipt.getHeaders().get("receipt-id"));
 
         assertEquals(view.getInactiveDurableTopicSubscribers().length, 0);
@@ -749,8 +645,8 @@ public class Stomp12Test extends StompTestSupport {
                        "ack:auto\n\n" + Stomp.NULL;
         stompConnection.sendFrame(frame);
 
-        frame = stompConnection.receiveFrame();
-        assertTrue(frame.startsWith("ERROR"));
+        StompFrame received = stompConnection.receive();
+        assertFrameIsErrorWithMessage(received, "SUBSCRIBE received without a subscription id!");
     }
 
     @Test(timeout = 60000)
@@ -821,23 +717,7 @@ public class Stomp12Test extends StompTestSupport {
     private void doTestMessagesRetirementAfterTransactionAbortClientIndividualAckMode(boolean nack) throws Exception {
         final int MESSAGE_COUNT = 10;
 
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         // Send some messages
         for (int n = 0; n < MESSAGE_COUNT; n++) {
@@ -858,7 +738,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -871,7 +751,7 @@ public class Stomp12Test extends StompTestSupport {
         for (int n = 0; n < MESSAGE_COUNT; n++) {
             StompFrame received = stompConnection.receive();
             LOG.info("Broker sent: " + received);
-            assertTrue(received.getAction().equals("MESSAGE"));
+            assertFrameCommandIs(received, "MESSAGE");
             assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
             assertEquals(String.format("%d", n), received.getBody());
 
@@ -904,7 +784,7 @@ public class Stomp12Test extends StompTestSupport {
 
             receipt = stompConnection.receive();
             LOG.info("Broker sent: " + receipt);
-            assertTrue(receipt.getAction().startsWith("RECEIPT"));
+            assertFrameCommandIs(receipt, "RECEIPT");
             receiptId = receipt.getHeaders().get("receipt-id");
             assertEquals("2", receiptId);
         }
@@ -941,23 +821,7 @@ public class Stomp12Test extends StompTestSupport {
     private void doTestMessagesRetirementAfterTransactionAbortClientAckMode(boolean nack) throws Exception {
         final int MESSAGE_COUNT = 10;
 
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         // Send some messages
         for (int n = 0; n < MESSAGE_COUNT; n++) {
@@ -978,7 +842,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -991,7 +855,7 @@ public class Stomp12Test extends StompTestSupport {
         for (int n = 0; n < MESSAGE_COUNT; n++) {
             StompFrame received = stompConnection.receive();
             LOG.info("Broker sent: " + received);
-            assertTrue(received.getAction().equals("MESSAGE"));
+            assertFrameCommandIs(received, "MESSAGE");
             assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
             assertEquals(String.format("%d", n), received.getBody());
 
@@ -1032,7 +896,7 @@ public class Stomp12Test extends StompTestSupport {
 
             receipt = stompConnection.receive();
             LOG.info("Broker sent: " + receipt);
-            assertTrue(receipt.getAction().startsWith("RECEIPT"));
+            assertFrameCommandIs(receipt, "RECEIPT");
             receiptId = receipt.getHeaders().get("receipt-id");
             assertEquals("2", receiptId);
         }
@@ -1066,27 +930,29 @@ public class Stomp12Test extends StompTestSupport {
         doTestMixedAckNackWithMessageAckIds(true);
     }
 
-    public void doTestMixedAckNackWithMessageAckIds(boolean individual) throws Exception {
+    @Test(timeout = 60000)
+    public void testStompHeaderWithUndefinedEscapeSequence() throws Exception {
+        assertDoStompConnectWithV1_2();
+        String undefinedEscapeSequence = "(\\xe6PM6";
+        String subscribe = "SUBSCRIBE\n" +
+            "id:" + undefinedEscapeSequence + "\n" +
+            "ack:auto\n" +
+            "destination:/queue/" + getQueueName() + "\n" +
+            "receipt:1\n" +
+            "\n" + Stomp.NULL;
+
+        stompConnection.sendFrame(subscribe);
+        StompFrame receipt = stompConnection.receive();
+        LOG.info("Broker sent: " + receipt);
+
+        assertFrameIsErrorWithMessage(receipt, "Undefined escape sequence [\\x] found in header!");
+    }
+
+    private void doTestMixedAckNackWithMessageAckIds(boolean individual) throws Exception {
 
         final int MESSAGE_COUNT = 20;
 
-        stompConnection.setVersion(Stomp.V1_2);
-
-        String connect = "STOMP\r\n" +
-                         "accept-version:1.2\r\n" +
-                         "login:system\r\n" +
-                         "passcode:manager\r\n" +
-                         "\r\n" +
-                         "\u0000\r\n";
-
-        stompConnection.sendFrame(connect);
-
-        String f = stompConnection.receiveFrame();
-        LOG.info("Broker sent: " + f);
-
-        assertTrue(f.startsWith("CONNECTED"));
-        assertTrue(f.indexOf("version:1.2") >= 0);
-        assertTrue(f.indexOf("session:") >= 0);
+        assertDoStompConnectWithV1_2();
 
         // Send some messages
         for (int n = 0; n < MESSAGE_COUNT; n++) {
@@ -1107,7 +973,7 @@ public class Stomp12Test extends StompTestSupport {
 
         StompFrame receipt = stompConnection.receive();
         LOG.info("Broker sent: " + receipt);
-        assertTrue(receipt.getAction().startsWith("RECEIPT"));
+        assertFrameCommandIs(receipt, "RECEIPT");
         String receiptId = receipt.getHeaders().get("receipt-id");
         assertEquals("1", receiptId);
 
@@ -1116,7 +982,7 @@ public class Stomp12Test extends StompTestSupport {
         for (int n = 0; n < MESSAGE_COUNT; n++) {
             StompFrame received = stompConnection.receive();
             LOG.info("Broker sent: " + received);
-            assertTrue(received.getAction().equals("MESSAGE"));
+            assertFrameCommandIs(received, "MESSAGE");
             assertTrue(received.getHeaders().containsKey(Stomp.Headers.Message.ACK_ID));
             assertEquals(String.format("%d", n), received.getBody());
 
@@ -1146,7 +1012,7 @@ public class Stomp12Test extends StompTestSupport {
 
             receipt = stompConnection.receive();
             LOG.info("Broker sent: " + receipt);
-            assertTrue(receipt.getAction().startsWith("RECEIPT"));
+            assertFrameCommandIs(receipt, "RECEIPT");
             receiptId = receipt.getHeaders().get("receipt-id");
             assertEquals("2", receiptId);
         }
@@ -1168,5 +1034,39 @@ public class Stomp12Test extends StompTestSupport {
                 return getProxyToBroker().getCurrentConnectionsCount() <= 1;
             }
         }, TimeUnit.SECONDS.toMillis(5), TimeUnit.MILLISECONDS.toMillis(25));
+    }
+
+    private void assertDoStompConnectWithV1_2() throws Exception {
+        assertDoStompConnectWithV1_2("STOMP");
+    }
+
+    private void assertDoStompConnectWithV1_2(final String connectCommand) throws Exception {
+        stompConnection.setVersion(Stomp.V1_2);
+        String connect = connectCommand + "\r\n" +
+            "accept-version:1.2\r\n" +
+            "login:system\r\n" +
+            "passcode:manager\r\n" +
+            "\r\n" +
+            "\u0000\r\n";
+
+        stompConnection.sendFrame(connect);
+        String f = stompConnection.receiveFrame();
+        LOG.info("Broker sent: " + f);
+
+        assertTrue(f.startsWith("CONNECTED"));
+        assertTrue(f.contains("version:1.2"));
+        assertTrue(f.contains("session:"));
+    }
+
+    private void assertFrameCommandIs(StompFrame frame, String expectedCommand) {
+        String frameCommand = frame.getAction();
+        assertTrue("Expected frame command to be: " + expectedCommand + "\nwas: " + frameCommand, frameCommand != null && frameCommand.startsWith(expectedCommand));
+    }
+
+    private void assertFrameIsErrorWithMessage(StompFrame frame, String expectedMessage) {
+        assertFrameCommandIs(frame, "ERROR");
+        assertTrue("frame should have Stomp.Headers.Error.MESSAGE header in " + frame.getHeaders(), frame.getHeaders().containsKey("message"));
+        String message = frame.getHeaders().get("message");
+        assertTrue("frame message should not be: " + message, message.contains(expectedMessage));
     }
 }
